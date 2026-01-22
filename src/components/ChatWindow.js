@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import "./ChatWindow.css";
-import { getAIMessage, streamAIMessage } from "../api/api";
+import { getAIMessage } from "../api/api";
 import { marked } from "marked";
 
 function ChatWindow() {
@@ -10,7 +10,6 @@ function ChatWindow() {
 
   const [messages, setMessages] = useState(defaultMessage);
   const [input, setInput] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
 
   // Quickstart prompt draft (fill-in form)
   const [promptDraft, setPromptDraft] = useState(null); // { id, label, template, needs: {ps, model, issue} }
@@ -80,14 +79,14 @@ function ChatWindow() {
       setIssueValue("");
       return;
     }
-  
+
     // Otherwise open the new prompt
     setPromptDraft(p);
     setPsValue("");
     setModelValue("");
     setIssueValue("");
   };
-  
+
   const closePromptDraft = () => {
     setPromptDraft(null);
     setPsValue("");
@@ -99,41 +98,24 @@ function ChatWindow() {
     const textToSend = (overrideText ?? input).trim();
     if (!textToSend) return;
 
+    // add user message
     setMessages((prev) => [...prev, { role: "user", content: textToSend }]);
     setInput("");
 
     try {
-      setIsStreaming(true);
-
-      // placeholder assistant message
-      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
-
-      let full = "";
-      await streamAIMessage(
-        textToSend,
-        (delta) => {
-          full += delta;
-          setMessages((prev) => {
-            const next = [...prev];
-            next[next.length - 1] = { ...next[next.length - 1], content: full };
-            return next;
-          });
-        },
-        (finalPayload) => {
-          if (finalPayload && (finalPayload.cards || finalPayload.sources)) {
-            setMessages((prev) => {
-              const next = [...prev];
-              next[next.length - 1] = { ...next[next.length - 1], ...finalPayload };
-              return next;
-            });
-          }
-        }
-      );
-    } catch (e) {
+      // get full (non-streaming) response
       const response = await getAIMessage(textToSend);
+
+      // if your API returns extra fields (cards/sources), keep them
       setMessages((prev) => [...prev, response]);
-    } finally {
-      setIsStreaming(false);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Sorry — something went wrong. Please try again.",
+        },
+      ]);
     }
   };
 
@@ -165,7 +147,6 @@ function ChatWindow() {
               key={p.id}
               className="quickstart-chip"
               onClick={() => openPrompt(p)}
-              disabled={isStreaming}
               title={p.template}
             >
               {p.label}
@@ -224,11 +205,7 @@ function ChatWindow() {
                 </span>
               </div>
 
-              <button
-                className="prompt-send"
-                onClick={sendPromptDraft}
-                disabled={isStreaming}
-              >
+              <button className="prompt-send" onClick={sendPromptDraft}>
                 Use this prompt
               </button>
             </div>
@@ -257,8 +234,7 @@ function ChatWindow() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={isStreaming ? "Streaming response…" : "Type a message..."}
-          disabled={isStreaming}
+          placeholder={"Type a message..."}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               handleSend();
@@ -266,12 +242,8 @@ function ChatWindow() {
             }
           }}
         />
-        <button
-          className="send-button"
-          onClick={() => handleSend()}
-          disabled={isStreaming}
-        >
-          {isStreaming ? "…" : "Send"}
+        <button className="send-button" onClick={() => handleSend()}>
+          Send
         </button>
       </div>
     </div>
